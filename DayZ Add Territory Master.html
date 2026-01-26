@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DayZ Add Territory Edition</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #050505; color: #dcdcdc; padding: 20px; margin: 0; }
+        .container { max-width: 1600px; margin: auto; background: #121212; padding: 25px; border-radius: 12px; border: 1px solid #222; box-shadow: 0 0 50px rgba(0,0,0,0.8); }
+        .layout { display: flex; gap: 30px; }
+        .side { flex: 1; min-width: 0; }
+        
+        textarea { width: 100%; height: 280px; background: #000; color: #2ecc71; border: 1px solid #333; padding: 12px; font-family: 'Consolas', monospace; font-size: 11px; border-radius: 6px; resize: none; }
+        
+        .config-panel { background: #1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid #333; position: sticky; top: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px; }
+        .field { display: flex; flex-direction: column; }
+        label { font-size: 10px; color: #e67e22; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+        select, input { padding: 10px; background: #262626; color: white; border: 1px solid #444; border-radius: 5px; font-size: 13px; outline: none; }
+        select:focus, input:focus { border-color: #e74c3c; }
+
+        .btn { width: 100%; padding: 14px; font-weight: bold; cursor: pointer; border: none; border-radius: 5px; text-transform: uppercase; margin-top: 10px; transition: all 0.2s ease; }
+        .btn-parse { background: #8e44ad; color: white; }
+        .btn-add { background: #27ae60; color: white; border-bottom: 4px solid #1e8449; }
+        .btn-apply { background: #e74c3c; color: white; border-bottom: 4px solid #c0392b; }
+        .btn-copy { background: #2980b9; color: white; }
+        .btn:hover { transform: translateY(-2px); filter: brightness(1.2); }
+
+        #mapContainer { position: relative; width: 780px; height: 780px; background: #080808; border: 3px solid #222; margin-top: 15px; border-radius: 8px; overflow: hidden; display: none; box-shadow: inset 0 0 20px #000; }
+        canvas { width: 100%; height: 100%; cursor: crosshair; }
+        .map-ui { position: absolute; background: rgba(0,0,0,0.85); padding: 8px 12px; border: 1px solid #444; border-radius: 4px; font-family: monospace; font-size: 12px; pointer-events: none; }
+        #liveCoords { top: 10px; left: 10px; color: #00ff00; }
+        .legend { bottom: 10px; right: 10px; font-size: 11px; }
+
+        .pending-box { margin-top: 15px; background: #000; padding: 10px; border-radius: 5px; border: 1px dashed #27ae60; max-height: 120px; overflow-y: auto; font-size: 11px; }
+        pre { background: #000; padding: 15px; color: #2ecc71; border: 1px solid #222; height: 120px; overflow: auto; margin-top: 15px; font-size: 10px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="color:#e74c3c; margin:0;">🧟 DayZ Add Territory Edition <span style="color:#666; font-size:0.6em;">v3.1 HD (Range fix)</span></h2>
+        <button class="btn" style="width:auto; background:#444; color:white; padding: 10px 20px;" onclick="toggleMap()">🗺️ Activer Visualisation Map</button>
+    </div>
+
+    <div class="layout">
+        <div class="side">
+            <label>1. Fichier Source (zombie_territories.xml)</label>
+            <textarea id="xmlInput" placeholder="Collez votre code XML ici..."></textarea>
+            <button class="btn btn-parse" onclick="analyserFichier()">🔍 Analyser & Charger les données</button>
+
+            <div id="mapContainer">
+                <canvas id="dayzMap" onclick="mapClick(event)"></canvas>
+                <div class="map-ui" id="liveCoords">X: 0 | Z: 0</div>
+                <div class="map-ui legend">
+                    <span style="color:#e74c3c">● Army</span> | <span style="color:#3498db">● Village</span> | <span style="color:#2ecc71">● New</span>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <div style="flex:1; background:#111; padding:10px; border-radius:5px; text-align:center;">
+                    <label>Zones</label><div id="totalZones" style="font-size:18px; color:#e67e22; font-weight:bold;">0</div>
+                </div>
+                <div style="flex:1; background:#111; padding:10px; border-radius:5px; text-align:center;">
+                    <label>Static Max</label><div id="totalStatic" style="font-size:18px; color:#2ecc71; font-weight:bold;">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="side config-panel">
+            <label>2. Paramètres de la nouvelle zone</label>
+            <div class="grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Groupe Cible</label><select id="selectColor" onchange="onColorChange()"></select></div>
+                <div class="field"><label>Type Zombie</label><select id="selectZombieType"></select></div>
+            </div>
+
+            <div class="grid">
+                <div class="field"><label>Coord X</label><input type="text" id="curX" readonly placeholder="Cliquez map"></div>
+                <div class="field"><label>Coord Z</label><input type="text" id="curZ" readonly placeholder="Cliquez map"></div>
+                <div class="field"><label>Rayon (ex: 50-100)</label><input type="text" id="radius" value="80" oninput="drawMap()"></div>
+                <div class="field"><label>S-Min (ex: 2-5)</label><input type="text" id="smin" value="2"></div>
+                <div class="field"><label>S-Max (ex: 5-8)</label><input type="text" id="smax" value="5"></div>
+                <div class="field"><label>D-Min</label><input type="text" id="dmin" value="5"></div>
+                <div class="field"><label>D-Max</label><input type="text" id="dmax" value="10"></div>
+            </div>
+
+            <button class="btn btn-add" onclick="preparerZone()">➕ Ajouter la zone au panier</button>
+            
+            <div id="pendingBox" class="pending-box" style="display:none;">
+                <b style="color:#2ecc71; font-size:10px;">ZONES PRÊTES À L'INJECTION :</b>
+                <div id="pendingList"></div>
+            </div>
+
+            <button class="btn btn-apply" onclick="appliquerModifications()">🚀 Fusionner & Générer XML</button>
+            <button class="btn btn-copy" onclick="copierXML()">📋 Copier le XML final</button>
+            
+            <pre id="output"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+let territoryData = [];
+let pendingZones = [];
+const MAP_SIZE = 15360;
+
+const landmarks = [
+    {n: "TISY MILITARY", x: 1735, z: 13955}, {n: "NWAF", x: 4500, z: 10300},
+    {n: "CHERNO", x: 6600, z: 2600}, {n: "ELECTRO", x: 10400, z: 2300},
+    {n: "BEREZINO", x: 12500, z: 9500}, {n: "ZELENO", x: 2500, z: 5200},
+    {n: "VMC", x: 4000, z: 8000}, {n: "STARY SOBOR", x: 6100, z: 7700}
+];
+
+function toggleMap() {
+    const c = document.getElementById('mapContainer');
+    c.style.display = c.style.display === 'none' ? 'block' : 'none';
+    if(c.style.display === 'block') drawMap();
+}
+
+// Fonction universelle pour gérer les chiffres simples OU les fourchettes (ex: 2-5 ou 50-100)
+function processValue(val) {
+    if (typeof val === 'string' && val.includes('-')) {
+        const parts = val.split('-').map(p => parseFloat(p.trim()));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            const min = Math.min(parts[0], parts[1]);
+            const max = Math.max(parts[0], parts[1]);
+            const res = Math.random() * (max - min) + min;
+            return res > 10 ? res.toFixed(1) : Math.round(res);
+        }
+    }
+    return val;
+}
+
+function analyserFichier() {
+    const xml = document.getElementById('xmlInput').value;
+    const territoryRegex = /<territory color="(.*?)">([\s\S]*?)<\/territory>/g;
+    territoryData = [];
+    let match, options = '<option value="">-- Sélectionner Groupe --</option>';
+    let s=0, z=0;
+
+    while ((match = territoryRegex.exec(xml)) !== null) {
+        const color = match[1];
+        const zones = [];
+        const zRegex = /<zone name="(.*?)" smin="(\d+)" smax="(\d+)" dmin="(\d+)" dmax="(\d+)" x="([\d.-]+)" z="([\d.-]+)" r="([\d.-]+)"\s*\/>/g;
+        let zm;
+        while ((zm = zRegex.exec(match[2])) !== null) {
+            s += parseInt(zm[3]); z++;
+            zones.push({ name: zm[1], smin: zm[2], smax: zm[3], dmin: zm[4], dmax: zm[5], x: zm[6], z: zm[7], r: zm[8] });
+        }
+        territoryData.push({ color, zones });
+        options += `<option value="${color}">Groupe ${color} (${zones.length})</option>`;
+    }
+    document.getElementById('selectColor').innerHTML = options;
+    document.getElementById('totalStatic').textContent = s;
+    document.getElementById('totalZones').textContent = z;
+    drawMap();
+}
+
+function drawMap() {
+    const canvas = document.getElementById('dayzMap');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const size = canvas.parentElement.clientWidth;
+    canvas.width = size; canvas.height = size;
+    const selColor = document.getElementById('selectColor').value;
+
+    ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 1;
+    for(let i=0; i<size; i += size/10) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
+    }
+
+    ctx.fillStyle = "#444"; ctx.font = "bold 10px Arial";
+    landmarks.forEach(l => {
+        const lx = (l.x / MAP_SIZE) * size;
+        const lz = size - ((l.z / MAP_SIZE) * size);
+        ctx.fillText(l.n, lx + 5, lz - 5);
+        ctx.fillRect(lx-2, lz-2, 4, 4);
+    });
+
+    territoryData.forEach(g => {
+        if (selColor && g.color !== selColor) return;
+        g.zones.forEach(z => {
+            const px = (z.x / MAP_SIZE) * size;
+            const py = size - ((z.z / MAP_SIZE) * size);
+            ctx.fillStyle = z.name.includes("Army") ? "#e74c3c" : "#3498db";
+            ctx.beginPath(); ctx.arc(px, py, selColor?3:1.2, 0, Math.PI*2); ctx.fill();
+        });
+    });
+
+    pendingZones.forEach(z => {
+        const px = (z.x / MAP_SIZE) * size;
+        const py = size - ((z.z / MAP_SIZE) * size);
+        ctx.fillStyle = "#2ecc71"; ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI*2); ctx.fill();
+    });
+
+    // Target actuelle + Prévisualisation du rayon
+    const cx = document.getElementById('curX').value;
+    const cz = document.getElementById('curZ').value;
+    const rInput = document.getElementById('radius').value;
+
+    if(cx) {
+        const px = (cx / MAP_SIZE) * size;
+        const py = size - ((cz / MAP_SIZE) * size);
+        
+        // Dessin du rayon (si fourchette, on prend la valeur max pour la preview)
+        const rVal = rInput.includes('-') ? parseFloat(rInput.split('-')[1]) : parseFloat(rInput);
+        const rPx = (rVal / MAP_SIZE) * size;
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+        ctx.beginPath(); ctx.arc(px, py, rPx, 0, Math.PI*2); ctx.stroke();
+        
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI*2); ctx.stroke();
+    }
+}
+
+function mapClick(e) {
+    const rect = e.target.getBoundingClientRect();
+    const x = Math.round(((e.clientX - rect.left) / e.target.width) * MAP_SIZE);
+    const z = Math.round(((e.target.width - (e.clientY - rect.top)) / e.target.width) * MAP_SIZE);
+    document.getElementById('curX').value = x;
+    document.getElementById('curZ').value = z;
+    drawMap();
+}
+
+function preparerZone() {
+    const col = document.getElementById('selectColor').value;
+    const x = document.getElementById('curX').value;
+    if(!col || !x) return alert("Sélectionnez un groupe et cliquez sur la map !");
+
+    const zType = document.getElementById('selectZombieType').value;
+    const newZ = {
+        color: col,
+        name: zType === "ALL" ? (territoryData.find(g=>g.color===col).zones[0].name) : zType,
+        smin: document.getElementById('smin').value,
+        smax: document.getElementById('smax').value,
+        dmin: document.getElementById('dmin').value,
+        dmax: document.getElementById('dmax').value,
+        x: x, z: document.getElementById('curZ').value, 
+        r: document.getElementById('radius').value
+    };
+
+    pendingZones.push(newZ);
+    document.getElementById('pendingBox').style.display = 'block';
+    document.getElementById('pendingList').innerHTML += `<div style="margin-bottom:3px">📍 ${newZ.name} [${x}, ${newZ.z}] (r:${newZ.r})</div>`;
+    drawMap();
+}
+
+function appliquerModifications() {
+    if(territoryData.length === 0) return;
+    
+    pendingZones.forEach(pz => {
+        const g = territoryData.find(group => group.color === pz.color);
+        if(g) {
+            g.zones.push({
+                ...pz,
+                smin: processValue(pz.smin), smax: processValue(pz.smax),
+                dmin: processValue(pz.dmin), dmax: processValue(pz.dmax),
+                r: processValue(pz.r)
+            });
+        }
+    });
+
+    let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n<territory-type>\n';
+    territoryData.forEach(g => {
+        xml += `    <territory color="${g.color}">\n`;
+        g.zones.forEach(z => {
+            xml += `        <zone name="${z.name}" smin="${z.smin}" smax="${z.smax}" dmin="${z.dmin}" dmax="${z.dmax}" x="${z.x}" z="${z.z}" r="${z.r}"/>\n`;
+        });
+        xml += `    </territory>\n`;
+    });
+    xml += '</territory-type>';
+    
+    document.getElementById('output').textContent = xml;
+    pendingZones = [];
+    document.getElementById('pendingList').innerHTML = "";
+    document.getElementById('pendingBox').style.display = 'none';
+    analyserFichier();
+    alert("Nouveau XML généré !");
+}
+
+function onColorChange() {
+    const col = document.getElementById('selectColor').value;
+    const g = territoryData.find(group => group.color === col);
+    if(g) {
+        const names = [...new Set(g.zones.map(z => z.name))];
+        let opt = '<option value="ALL">-- Type Automatique --</option>';
+        names.forEach(n => opt += `<option value="${n}">${n}</option>`);
+        document.getElementById('selectZombieType').innerHTML = opt;
+    }
+    drawMap();
+}
+
+document.getElementById('dayzMap').addEventListener('mousemove', function(e) {
+    const rect = e.target.getBoundingClientRect();
+    const dX = Math.round(((e.clientX - rect.left) / e.target.width) * MAP_SIZE);
+    const dZ = Math.round(((e.target.width - (e.clientY - rect.top)) / e.target.width) * MAP_SIZE);
+    document.getElementById('liveCoords').textContent = `X: ${dX} | Z: ${dZ}`;
+});
+
+function copierXML() {
+    navigator.clipboard.writeText(document.getElementById('output').textContent);
+    alert("XML copié !");
+}
+</script>
+</body>
+</html>
