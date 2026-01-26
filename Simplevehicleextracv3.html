@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DayZ - Vehicle Builder (Multi-Wheel Support)</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; background: #1e1e1e; padding: 25px; border-radius: 10px; border: 1px solid #333; }
+        .layout { display: flex; gap: 20px; }
+        .xml-side { flex: 1; }
+        .form-side { flex: 2; background: #252525; padding: 20px; border-radius: 8px; }
+        textarea { width: 100%; height: 250px; background: #1a1a1a; color: #00ff00; border: 1px solid #444; padding: 10px; font-family: monospace; font-size: 11px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .field { display: flex; flex-direction: column; margin-bottom: 5px; }
+        label { font-size: 0.75em; color: #e67e22; font-weight: bold; margin-bottom: 3px; }
+        select, input { padding: 8px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; }
+        .btn-group { margin-top: 20px; display: flex; gap: 10px; }
+        button { flex: 1; padding: 15px; font-weight: bold; cursor: pointer; border: none; border-radius: 4px; text-transform: uppercase; }
+        .btn-parse { background: #8e44ad; color: white; }
+        .btn-gen { background: #e67e22; color: white; }
+        .btn-copy { background: #2980b9; color: white; }
+        pre { background: #000; padding: 15px; color: #00ff00; border: 1px solid #333; min-height: 150px; margin-top: 20px; white-space: pre; font-family: monospace; border-left: 5px solid #e67e22; }
+        .wheel-box { background: #2c2c2c; padding: 10px; border-radius: 5px; border: 1px dashed #555; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🛠️ Vehicle Builder (Multi-Roues)</h2>
+    <div class="layout">
+        <div class="xml-side">
+            <label>1. XML Source</label>
+            <textarea id="xmlInput" placeholder="Colle ton TYPES.XML..."></textarea>
+            <button class="btn-parse" style="margin-top:10px; width:100%" onclick="analyserXML()">🔍 Analyser XML</button>
+        </div>
+
+        <div class="form-side">
+            <label>2. Véhicule</label>
+            <div class="field" style="margin-bottom:15px">
+                <select id="v_chassis" onchange="appliquerFiltres()"></select>
+            </div>
+
+            <div class="grid">
+                <div class="field"><label>Batterie</label><input type="text" id="v_batt" value="CarBattery"></div>
+                <div class="field"><label>Bougie</label><input type="text" id="v_plug" value="SparkPlug"></div>
+                <div class="field"><label>Radiateur</label><input type="text" id="v_rad" value="CarRadiator"></div>
+                <div class="field"><label>Ampoule</label><input type="text" id="v_light" value="HeadlightH7"></div>
+            </div>
+
+            <label style="display:block; margin-top:15px; color:#e67e22">🛞 Gestion des Roues (Simples / Doubles)</label>
+            <div class="grid">
+                <div class="wheel-box">
+                    <div class="field"><label>Type de Roue A</label><select id="v_wheel_1" class="wheel-sel"></select></div>
+                    <div class="field"><label>Quantité A</label><input type="number" id="v_wheel_q1" value="2"></div>
+                </div>
+                <div class="wheel-box">
+                    <div class="field"><label>Type de Roue B</label><select id="v_wheel_2" class="wheel-sel"></select></div>
+                    <div class="field"><label>Quantité B</label><input type="number" id="v_wheel_q2" value="4"></div>
+                </div>
+            </div>
+
+            <label style="display:block; margin-top:15px; border-bottom: 1px solid #444; color:#aaa">Carrosserie (8 slots)</label>
+            <div class="grid" style="margin-top:10px;">
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+                <div class="field"><select class="door-sel"></select></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn-gen" onclick="genererFinal()">🚀 Générer le Bloc</button>
+        <button class="btn-copy" onclick="copier()">📋 Copier</button>
+    </div>
+
+    <pre id="output"></pre>
+</div>
+
+<script>
+let allNames = [];
+
+function analyserXML() {
+    const xml = document.getElementById('xmlInput').value;
+    allNames = [...xml.matchAll(/<type name="(.*?)">/g)].map(m => m[1]).sort();
+    if(allNames.length === 0) return alert("Vérifie ton XML !");
+    
+    const chassisOnly = allNames.filter(n => !/door|wheel|hood|trunk|cargo|part|ruined|glowplug|sparkplug|radiator|battery/i.test(n));
+    remplirSelect("v_chassis", ["-- Sélectionne un châssis --", ...chassisOnly]);
+    alert("Analyse OK.");
+}
+
+function appliquerFiltres() {
+    const chassis = document.getElementById('v_chassis').value;
+    if (!chassis || chassis.includes("--")) return;
+
+    const segments = chassis.split('_');
+    const wheels = allNames.filter(n => n.toLowerCase().includes("wheel") && n.includes(segments[0]));
+    
+    // On remplit les deux sélecteurs de roues
+    document.querySelectorAll(".wheel-sel").forEach(sel => {
+        remplirSelect(sel, ["-- Pas de roue --", ...wheels]);
+    });
+
+    const bodyParts = allNames.filter(n => {
+        return /door|hood|trunk|cargo/i.test(n) && n.includes(segments[0]) && !n.includes("ruined");
+    });
+
+    document.querySelectorAll(".door-sel").forEach(sel => {
+        remplirSelect(sel, ["-- Vide --", ...bodyParts]);
+    });
+}
+
+function remplirSelect(target, list) {
+    const el = (typeof target === "string") ? document.getElementById(target) : target;
+    el.innerHTML = list.map(n => `<option value="${n.includes("--") ? "" : n}">${n}</option>`).join("");
+}
+
+function genererFinal() {
+    const chassis = document.getElementById('v_chassis').value;
+    
+    let res = `<VehicleParts>${chassis || "NOM_DU_VEHICULE"}\n`;
+    
+    const simpleFields = ['v_plug', 'v_batt', 'v_rad'];
+    simpleFields.forEach(id => {
+        const val = document.getElementById(id).value.trim();
+        if(val) res += `\t${val}\n`;
+    });
+
+    const light = document.getElementById('v_light').value.trim();
+    if(light) { res += `\t${light}\n\t${light}\n`; }
+
+    // Portes
+    document.querySelectorAll(".door-sel").forEach(sel => {
+        if(sel.value) res += `\t${sel.value}\n`;
+    });
+
+    // Roues Train A
+    const w1 = document.getElementById('v_wheel_1').value;
+    const q1 = parseInt(document.getElementById('v_wheel_q1').value) || 0;
+    if(w1) { for(let i=0; i<q1; i++) { res += `\t${w1}\n`; } }
+
+    // Roues Train B
+    const w2 = document.getElementById('v_wheel_2').value;
+    const q2 = parseInt(document.getElementById('v_wheel_q2').value) || 0;
+    if(w2) { for(let i=0; i<q2; i++) { res += `\t${w2}\n`; } }
+
+    document.getElementById('output').textContent = res;
+}
+
+function copier() {
+    const text = document.getElementById('output').textContent;
+    if(!text) return;
+    navigator.clipboard.writeText(text).then(() => alert("Copié !"));
+}
+</script>
+</body>
+</html>
