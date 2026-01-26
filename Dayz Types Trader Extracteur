@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DayZ Trader Builder - Smart Edition</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; background: #1e1e1e; padding: 25px; border-radius: 10px; border: 1px solid #333; }
+        h2 { margin-top:0; color:#27ae60; border-bottom: 1px solid #333; padding-bottom: 15px; }
+        textarea { width: 100%; height: 200px; background: #2d2d2d; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 10px; font-family: monospace; box-sizing: border-box; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; background: #252525; padding: 15px; border-radius: 6px; }
+        .field { display: flex; flex-direction: column; }
+        label { font-size: 0.85em; color: #e67e22; margin-bottom: 5px; font-weight: bold; }
+        input, select { padding: 10px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; }
+        .actions { display: flex; gap: 10px; margin-bottom: 10px; }
+        button { flex: 1; padding: 15px; border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 4px; transition: 0.2s; text-transform: uppercase; }
+        .btn-gen { background: #27ae60; }
+        .btn-copy { background: #2980b9; }
+        pre { background: #000; padding: 15px; border-radius: 4px; color: #00ff00; border: 1px solid #333; min-height: 150px; white-space: pre; font-family: 'Consolas', monospace; overflow-x: auto; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🛠️ DayZ Trader Builder <span style="font-size: 0.5em; color: #888;">SMART COLOR & LIFETIME</span></h2>
+    
+    <label>1. Contenu XML (types.xml) :</label>
+    <textarea id="inputXml" placeholder="Colle ton XML ici..."></textarea>
+
+    <div class="grid">
+        <div class="field">
+            <label>Type (W, M, *, V...)</label>
+            <input type="text" id="itemType" value="*">
+        </div>
+        <div class="field">
+            <label>Lifetime MIN</label>
+            <input type="number" id="minLife" value="3600">
+        </div>
+        <div class="field">
+            <label>Lifetime MAX</label>
+            <input type="number" id="maxLife" value="7200">
+        </div>
+
+        <div class="field">
+            <label>Prix Achat Base</label>
+            <input type="number" id="buy" value="2000">
+        </div>
+        <div class="field">
+            <label>Variation (+/-)</label>
+            <input type="number" id="varBuy" value="500">
+        </div>
+        <div class="field">
+            <label>Arrondi</label>
+            <select id="roundStep">
+                <option value="1">1</option>
+                <option value="10" selected>10</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>Prix Vente Base</label>
+            <input type="number" id="sell" value="1000">
+        </div>
+        <div class="field">
+            <label>Variation (+/-)</label>
+            <input type="number" id="varSell" value="300">
+        </div>
+        <div class="field" style="justify-content:center; color:#888; font-size:0.8em;">
+            Les couleurs d'un même item auront le même prix.
+        </div>
+    </div>
+    
+    <div class="actions">
+        <button class="btn-gen" onclick="convertir()">🚀 Générer la liste intelligente</button>
+        <button class="btn-copy" onclick="copier()">📋 Copier</button>
+    </div>
+
+    <pre id="output"></pre>
+</div>
+
+<script>
+    // Liste des suffixes de couleurs courants dans DayZ
+    const colorSuffixes = ["_Black", "_Red", "_Blue", "_Green", "_Yellow", "_White", "_Grey", "_Orange", "_Pink", "_Camo", "_Desert", "_Winter"];
+
+    function getRandomInt(min, max, step) {
+        let val = Math.floor(Math.random() * (max - min + 1)) + min;
+        return Math.round(val / step) * step;
+    }
+
+    function getRootName(name) {
+        let root = name;
+        colorSuffixes.forEach(s => {
+            if (name.endsWith(s)) {
+                root = name.substring(0, name.lastIndexOf(s));
+            }
+        });
+        return root;
+    }
+
+    function convertir() {
+        const xml = document.getElementById('inputXml').value;
+        const type = document.getElementById('itemType').value.trim();
+        const minLifeLimit = parseInt(document.getElementById('minLife').value);
+        const maxLifeLimit = parseInt(document.getElementById('maxLife').value);
+        const buyBase = parseInt(document.getElementById('buy').value);
+        const varBuy = parseInt(document.getElementById('varBuy').value);
+        const sellBase = parseInt(document.getElementById('sell').value);
+        const varSell = parseInt(document.getElementById('varSell').value);
+        const step = parseInt(document.getElementById('roundStep').value);
+        
+        const regex = /<type name="(.*?)">([\s\S]*?)<\/type>/g;
+        let match;
+        let result = "";
+        
+        // Map pour stocker [RootName] -> {buy, sell}
+        let priceMemory = new Map();
+
+        while ((match = regex.exec(xml)) !== null) {
+            const name = match[1];
+            const content = match[2];
+            const lifeMatch = content.match(/<lifetime>(\d+)<\/lifetime>/);
+            
+            if (lifeMatch) {
+                const itemLife = parseInt(lifeMatch[1]);
+                
+                // Filtre sur la fourchette de lifetime
+                if (itemLife >= minLifeLimit && itemLife <= maxLifeLimit) {
+                    const root = getRootName(name);
+                    let finalBuy, finalSell;
+
+                    // Si on a déjà généré un prix pour cette racine, on le réutilise
+                    if (priceMemory.has(root)) {
+                        finalBuy = priceMemory.get(root).buy;
+                        finalSell = priceMemory.get(root).sell;
+                    } else {
+                        finalBuy = getRandomInt(buyBase - varBuy, buyBase + varBuy, step);
+                        finalSell = getRandomInt(sellBase - varSell, sellBase + varSell, step);
+                        priceMemory.set(root, {buy: finalBuy, sell: finalSell});
+                    }
+                    
+                    // Formatage strict : Item,     Type,      Buy,      Sell
+                    result += `${name},     ${type},     ${finalBuy},     ${finalSell}\n`;
+                }
+            }
+        }
+        document.getElementById('output').textContent = result || "Aucun objet ne correspond aux critères.";
+    }
+
+    function copier() {
+        const text = document.getElementById('output').textContent;
+        if (text) {
+            navigator.clipboard.writeText(text);
+            alert("Liste copiée !");
+        }
+    }
+</script>
+
+</body>
+</html>
