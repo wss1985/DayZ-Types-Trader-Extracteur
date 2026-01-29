@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Dayz Territories Master ZVisual</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .wrapper { display: flex; gap: 20px; max-width: 1650px; width: 100%; }
+        .panel { background: #161616; padding: 20px; border-radius: 10px; border: 1px solid #333; flex: 1; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow-y: auto; max-height: 90vh; }
+        .map-box { position: relative; width: 850px; height: 850px; background: #000; border: 2px solid #444; border-radius: 8px; overflow: hidden; }
+        canvas { display: block; width: 850px; height: 850px; cursor: crosshair; }
+        
+        #mapTooltip { 
+            position: absolute; background: rgba(0, 0, 0, 0.95); color: #fff; padding: 12px; 
+            border: 1px solid #e74c3c; border-radius: 5px; pointer-events: none; display: none; 
+            font-size: 13px; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.8);
+        }
+
+        textarea { width: 100%; height: 200px; background: #000; color: #00ff00; border: 1px solid #444; padding: 10px; font-family: monospace; font-size: 11px; margin-bottom: 15px; }
+        .btn-load { background: #e74c3c; color: white; padding: 15px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; text-transform: uppercase; margin-bottom: 20px; }
+        
+        .filter-section { background: #111; padding: 15px; border: 1px solid #333; border-radius: 5px; }
+        .filter-item { display: flex; align-items: center; margin-bottom: 8px; font-size: 14px; }
+        .color-preview { width: 20px; height: 12px; border-radius: 2px; margin-right: 10px; border: 1px solid #555; }
+        input[type="checkbox"] { margin-right: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="wrapper">
+        <div class="map-side">
+            <div class="map-box">
+                <canvas id="territoryMap"></canvas>
+                <div id="mapTooltip"></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2 style="color:#e74c3c; margin-top:0;">🗺️ Dayz Territories Master ZVisual</h2>
+            <textarea id="xmlInput" placeholder="Collez votre XML ici..."></textarea>
+            <button class="btn-load" onclick="processXML()">🚀 CHARGER ET COLORER</button>
+
+            <div class="filter-section">
+                <div style="color: #e74c3c; font-weight: bold; margin-bottom: 10px;">GROUPES DÉTECTÉS</div>
+                <div id="filterList">Aucun groupe chargé</div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const MAP_SIZE = 15360;
+    const canvas = document.getElementById('territoryMap');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('mapTooltip');
+    canvas.width = 850; canvas.height = 850;
+
+    let territories = [];
+    let activeFilters = new Set();
+    let groupColors = {}; // Stocke les couleurs générées
+
+    // Fonction pour générer une couleur aléatoire "vive"
+    function getRandomColor() {
+        const h = Math.floor(Math.random() * 360);
+        return `hsl(${h}, 70%, 50%)`;
+    }
+
+    function processXML() {
+        const xmlText = document.getElementById('xmlInput').value;
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+        const territoryTags = xmlDoc.getElementsByTagName("territory");
+        
+        territories = [];
+        activeFilters.clear();
+        groupColors = {};
+
+        for (let t of territoryTags) {
+            const groupName = t.getAttribute("color"); // On récupère le nom du groupe
+            
+            // Si on n'a pas encore de couleur pour ce groupe, on en crée une
+            if (!groupColors[groupName]) {
+                groupColors[groupName] = getRandomColor();
+            }
+
+            const zones = t.getElementsByTagName("zone");
+            const zoneList = [];
+
+            for (let z of zones) {
+                zoneList.push({
+                    name: z.getAttribute("name"),
+                    x: parseFloat(z.getAttribute("x")),
+                    z: parseFloat(z.getAttribute("z")),
+                    r: parseFloat(z.getAttribute("r")),
+                    smin: z.getAttribute("smin"), smax: z.getAttribute("smax")
+                });
+            }
+            territories.push({ group: groupName, color: groupColors[groupName], zones: zoneList });
+            activeFilters.add(groupName);
+        }
+
+        generateFilterUI();
+        draw();
+    }
+
+    function generateFilterUI() {
+        const container = document.getElementById('filterList');
+        container.innerHTML = "";
+        territories.forEach(t => {
+            const item = document.createElement('div');
+            item.className = 'filter-item';
+            item.innerHTML = `
+                <input type="checkbox" checked onchange="toggleFilter('${t.group}')" id="chk-${t.group}">
+                <div class="color-preview" style="background:${t.color}"></div>
+                <label for="chk-${t.group}" style="cursor:pointer"><b>${t.group}</b> (${t.zones.length} zones)</label>
+            `;
+            container.appendChild(item);
+        });
+    }
+
+    function toggleFilter(group) {
+        if (activeFilters.has(group)) activeFilters.delete(group);
+        else activeFilters.add(group);
+        draw();
+    }
+
+    function draw() {
+        ctx.fillStyle = "#050505"; ctx.fillRect(0, 0, 850, 850);
+        ctx.strokeStyle = "#151515";
+        for(let i=0; i<850; i += 85) {
+            ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,850); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(850,i); ctx.stroke();
+        }
+
+        territories.forEach(t => {
+            if (!activeFilters.has(t.group)) return;
+
+            ctx.fillStyle = t.color;
+
+            t.zones.forEach(z => {
+                const px = (z.x / MAP_SIZE) * 850;
+                const py = 850 - ((z.z / MAP_SIZE) * 850);
+                const pr = (z.r / MAP_SIZE) * 850;
+
+                ctx.globalAlpha = 0.3;
+                ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+                ctx.globalAlpha = 0.8;
+                ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.stroke();
+            });
+        });
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = ((e.clientX - rect.left) / 850) * MAP_SIZE;
+        const mz = (1 - (e.clientY - rect.top) / 850) * MAP_SIZE;
+
+        let found = null;
+        for (let t of territories) {
+            if (!activeFilters.has(t.group)) continue;
+            for (let z of t.zones) {
+                const dist = Math.sqrt(Math.pow(z.x - mx, 2) + Math.pow(z.z - mz, 2));
+                if (dist < z.r) { found = { ...z, group: t.group }; break; }
+            }
+            if (found) break;
+        }
+
+        if (found) {
+            tooltip.style.display = 'block';
+            tooltip.style.left = (e.clientX + 15) + 'px';
+            tooltip.style.top = (e.clientY + 15) + 'px';
+            tooltip.innerHTML = `
+                <b style="color:#e74c3c">${found.name}</b><br>
+                Groupe: <span style="color:${groupColors[found.group]}">${found.group}</span><br>
+                Rayon: ${found.r}m<br>
+                Pop: ${found.smin}-${found.smax}
+            `;
+        } else tooltip.style.display = 'none';
+    });
+
+    draw();
+</script>
+</body>
+</html>
