@@ -10,10 +10,12 @@
         .map-box { position: relative; width: 850px; height: 850px; background: #000; border: 2px solid #444; border-radius: 8px; overflow: hidden; }
         canvas { display: block; width: 850px; height: 850px; cursor: crosshair; }
         
+        /* CORRECTIF FENETRE CURSEUR */
         #mapTooltip { 
-            position: absolute; background: rgba(0, 0, 0, 0.95); color: #fff; padding: 12px; 
-            border: 1px solid #e74c3c; border-radius: 5px; pointer-events: none; display: none; 
-            font-size: 13px; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.8);
+            position: absolute; background: rgba(0, 0, 0, 0.95); color: #fff; padding: 10px; 
+            border: 1px solid #e74c3c; border-radius: 4px; pointer-events: none; display: none; 
+            font-size: 12px; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.8);
+            white-space: nowrap;
         }
 
         textarea { width: 100%; height: 200px; background: #000; color: #00ff00; border: 1px solid #444; padding: 10px; font-family: monospace; font-size: 11px; margin-bottom: 15px; }
@@ -29,7 +31,7 @@
 
     <div class="wrapper">
         <div class="map-side">
-            <div class="map-box">
+            <div class="map-box" id="mapCont">
                 <canvas id="territoryMap"></canvas>
                 <div id="mapTooltip"></div>
             </div>
@@ -48,7 +50,7 @@
     </div>
 
 <script>
-    const MAP_SIZE = 15360;
+    const MAP_SIZE = 16500;
     const canvas = document.getElementById('territoryMap');
     const ctx = canvas.getContext('2d');
     const tooltip = document.getElementById('mapTooltip');
@@ -56,9 +58,8 @@
 
     let territories = [];
     let activeFilters = new Set();
-    let groupColors = {}; // Stocke les couleurs générées
+    let groupColors = {}; 
 
-    // Fonction pour générer une couleur aléatoire "vive"
     function getRandomColor() {
         const h = Math.floor(Math.random() * 360);
         return `hsl(${h}, 70%, 50%)`;
@@ -75,9 +76,7 @@
         groupColors = {};
 
         for (let t of territoryTags) {
-            const groupName = t.getAttribute("color"); // On récupère le nom du groupe
-            
-            // Si on n'a pas encore de couleur pour ce groupe, on en crée une
+            const groupName = t.getAttribute("color");
             if (!groupColors[groupName]) {
                 groupColors[groupName] = getRandomColor();
             }
@@ -97,7 +96,6 @@
             territories.push({ group: groupName, color: groupColors[groupName], zones: zoneList });
             activeFilters.add(groupName);
         }
-
         generateFilterUI();
         draw();
     }
@@ -133,14 +131,11 @@
 
         territories.forEach(t => {
             if (!activeFilters.has(t.group)) return;
-
             ctx.fillStyle = t.color;
-
             t.zones.forEach(z => {
                 const px = (z.x / MAP_SIZE) * 850;
                 const py = 850 - ((z.z / MAP_SIZE) * 850);
                 const pr = (z.r / MAP_SIZE) * 850;
-
                 ctx.globalAlpha = 0.3;
                 ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
                 ctx.globalAlpha = 0.8;
@@ -151,8 +146,11 @@
 
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
-        const mx = ((e.clientX - rect.left) / 850) * MAP_SIZE;
-        const mz = (1 - (e.clientY - rect.top) / 850) * MAP_SIZE;
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        const mx = (mouseX / 850) * MAP_SIZE;
+        const mz = (1 - (mouseY / 850)) * MAP_SIZE;
 
         let found = null;
         for (let t of territories) {
@@ -166,15 +164,18 @@
 
         if (found) {
             tooltip.style.display = 'block';
-            tooltip.style.left = (e.clientX + 15) + 'px';
-            tooltip.style.top = (e.clientY + 15) + 'px';
+            // CORRECTIF : Positionnement relatif au conteneur de la carte pour éviter les décalages
+            tooltip.style.left = (mouseX + 10) + 'px'; 
+            tooltip.style.top = (mouseY + 10) + 'px';
             tooltip.innerHTML = `
                 <b style="color:#e74c3c">${found.name}</b><br>
                 Groupe: <span style="color:${groupColors[found.group]}">${found.group}</span><br>
                 Rayon: ${found.r}m<br>
                 Pop: ${found.smin}-${found.smax}
             `;
-        } else tooltip.style.display = 'none';
+        } else {
+            tooltip.style.display = 'none';
+        }
     });
 
     draw();
