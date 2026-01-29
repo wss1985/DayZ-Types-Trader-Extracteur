@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DayZ SpawnPlus ZPopulation</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .wrapper { display: flex; gap: 20px; max-width: 1700px; width: 100%; }
+        .panel { background: #161616; padding: 20px; border-radius: 10px; border: 1px solid #333; flex: 1; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow-y: auto; max-height: 92vh; }
+        .map-box { position: relative; width: 850px; height: 850px; background: #000; border: 2px solid #444; border-radius: 8px; overflow: hidden; cursor: crosshair; }
+        canvas { display: block; width: 850px; height: 850px; }
+        
+        #mapTooltip { position: absolute; background: rgba(0, 0, 0, 0.95); color: #fff; padding: 8px; border: 1px solid #e74c3c; border-radius: 4px; pointer-events: none; display: none; font-size: 12px; z-index: 1000; }
+        .coords-bar { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); color: #00ff00; padding: 5px; font-family: monospace; font-size: 12px; text-align: center; pointer-events: none; }
+
+        textarea { width: 100%; height: 200px; background: #000; color: #00ff00; border: 1px solid #444; padding: 10px; font-family: monospace; font-size: 11px; margin-bottom: 10px; border-radius: 5px; }
+        .btn { padding: 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; text-transform: uppercase; margin-bottom: 10px; }
+        .btn-load { background: #e74c3c; color: white; }
+        .btn-inject { background: #27ae60; color: white; }
+        
+        .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #222; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+        label { font-size: 11px; color: #aaa; }
+        input { background: #000; color: white; border: 1px solid #444; padding: 5px; border-radius: 3px; width: 90%; }
+
+        .group-card { background: #111; border: 1px solid #333; padding: 10px; border-radius: 5px; margin-bottom: 8px; cursor: pointer; transition: 0.2s; }
+        .group-card:hover { border-color: #e74c3c; }
+        .group-card.selected { border: 2px solid #27ae60; background: rgba(39, 174, 96, 0.1); }
+        .zombie-list { font-size: 10px; color: #3498db; margin-top: 5px; padding-top: 5px; border-top: 1px solid #222; max-height: 80px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+
+    <div class="wrapper">
+        <div class="map-side">
+            <div class="map-box">
+                <canvas id="territoryMap"></canvas>
+                <div id="mapTooltip"></div>
+                <div class="coords-bar" id="liveCoords">X: 0 | Z: 0</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3 style="color:#e74c3c; margin-top:0;">📋 DayZ SpawnPlus ZPopulation</h3>
+            <textarea id="xmlInput" placeholder="Collez votre XML ici..."></textarea>
+            <button class="btn btn-load" onclick="processXML()">ANALYSER LES GROUPES</button>
+
+            <h3 style="color:#27ae60;">⚙️ 2. CONFIGURATION ZONE</h3>
+            <div class="input-grid">
+                <div><label>NOM :</label><input type="text" id="zName" value="InfectedArmy"></div>
+                <div><label>RADIUS :</label><input type="number" id="zR" value="150" oninput="draw()"></div>
+                <div><label>SMIN :</label><input type="number" id="smin" value="5"></div>
+                <div><label>SMAX :</label><input type="number" id="smax" value="10"></div>
+                <div><label>DMIN :</label><input type="number" id="dmin" value="0"></div>
+                <div><label>DMAX :</label><input type="number" id="dmax" value="0"></div>
+            </div>
+            <button class="btn btn-inject" onclick="injectZone()">INJECTER DANS LE GROUPE SÉLECTIONNÉ</button>
+
+            <h3 style="color:#3498db;">👥 3. GROUPES & COMPOSITION</h3>
+            <div id="filterList">Chargez un XML...</div>
+        </div>
+    </div>
+
+<script>
+    const MAP_SIZE = 16500; // Ta valeur personnalisée
+    const canvas = document.getElementById('territoryMap');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('mapTooltip');
+    canvas.width = 850; canvas.height = 850;
+
+    let territories = [];
+    let selectedPos = { x: 0, z: 0 };
+    let targetGroup = null;
+
+    function processXML() {
+        const xmlText = document.getElementById('xmlInput').value;
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+        const territoryTags = xmlDoc.getElementsByTagName("territory");
+        
+        territories = [];
+        for (let t of territoryTags) {
+            const color = t.getAttribute("color");
+            const zones = t.getElementsByTagName("zone");
+            const types = t.getElementsByTagName("type");
+            
+            let zombieTypes = [];
+            for(let tp of types) zombieTypes.push(tp.getAttribute("name"));
+
+            let zoneList = [];
+            for (let z of zones) {
+                zoneList.push({
+                    name: z.getAttribute("name"),
+                    x: parseFloat(z.getAttribute("x")),
+                    z: parseFloat(z.getAttribute("z")),
+                    r: parseFloat(z.getAttribute("r"))
+                });
+            }
+            territories.push({ color, zones: zoneList, zombies: zombieTypes });
+        }
+        renderGroups();
+        draw();
+    }
+
+    function renderGroups() {
+        const container = document.getElementById('filterList');
+        container.innerHTML = "";
+        territories.forEach(t => {
+            const card = document.createElement('div');
+            card.className = `group-card ${targetGroup === t.color ? 'selected' : ''}`;
+            card.onclick = () => { targetGroup = t.color; renderGroups(); };
+            card.innerHTML = `
+                <div style="font-size:12px;"><b>Groupe:</b> ${t.color}</div>
+                <div style="font-size:11px; color:#888;">Zones: ${t.zones.length}</div>
+                <div class="zombie-list"><b>Composition:</b><br>${t.zombies.join(', ') || 'Aucun type défini'}</div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    function draw() {
+        ctx.fillStyle = "#050505"; ctx.fillRect(0, 0, 850, 850);
+        ctx.strokeStyle = "#151515";
+        for(let i=0; i<850; i += 85) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,850); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(850,i); ctx.stroke(); }
+
+        territories.forEach(t => {
+            ctx.fillStyle = (t.color === targetGroup) ? "#27ae60" : "#e74c3c";
+            t.zones.forEach(z => {
+                const px = (z.x / MAP_SIZE) * 850;
+                const py = 850 - ((z.z / MAP_SIZE) * 850);
+                const pr = (z.r / MAP_SIZE) * 850;
+                ctx.globalAlpha = 0.2; ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+            });
+        });
+
+        if (selectedPos.x !== 0) {
+            const px = (selectedPos.x / MAP_SIZE) * 850;
+            const py = 850 - ((selectedPos.z / MAP_SIZE) * 850);
+            const pr = (document.getElementById('zR').value / MAP_SIZE) * 850;
+            ctx.globalAlpha = 1; ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI*2); ctx.fill();
+        }
+    }
+
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        selectedPos.x = Math.round(((e.clientX - rect.left) / 850) * MAP_SIZE);
+        selectedPos.z = Math.round((1 - (e.clientY - rect.top) / 850) * MAP_SIZE);
+        draw();
+    });
+
+    function injectZone() {
+        if (!targetGroup) return alert("Sélectionne un groupe dans la liste !");
+        
+        const n = document.getElementById('zName').value;
+        const r = document.getElementById('zR').value;
+        const smin = document.getElementById('smin').value;
+        const smax = document.getElementById('smax').value;
+        const dmin = document.getElementById('dmin').value;
+        const dmax = document.getElementById('dmax').value;
+
+        const newLine = `            <zone name="${n}" smin="${smin}" smax="${smax}" dmin="${dmin}" dmax="${dmax}" x="${selectedPos.x}" z="${selectedPos.z}" r="${r}"/>`;
+        
+        let xml = document.getElementById('xmlInput').value;
+        const regex = new RegExp(`(<territory color="${targetGroup}"[\\s\\S]*?>)`, "i");
+        
+        if (xml.match(regex)) {
+            xml = xml.replace(regex, `$1\n${newLine}`);
+            document.getElementById('xmlInput').value = xml;
+            processXML();
+            alert("Ligne injectée !");
+        } else alert("Groupe introuvable dans le texte.");
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = ((e.clientX - rect.left) / 850) * MAP_SIZE;
+        const mz = (1 - (e.clientY - rect.top) / 850) * MAP_SIZE;
+        document.getElementById('liveCoords').textContent = `X: ${Math.round(mx)} | Z: ${Math.round(mz)}`;
+    });
+</script>
+</body>
+</html>
